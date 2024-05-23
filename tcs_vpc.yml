@@ -1,0 +1,234 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: A vpc template for public and private resources
+Resources:
+  tcsVpc: 
+    Type: AWS::EC2::VPC
+    Properties: 
+      CidrBlock: 192.168.0.0/16
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true' # DNS hostnames
+      Tags:
+       - Key: Name
+         Value: tcs-vpc
+
+  tcsPublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: tcsVpc
+      CidrBlock: 192.168.0.0/20
+      AvailabilityZone: "ap-south-1a"
+      MapPublicIpOnLaunch: 'true'
+      Tags:
+      - Key: Name
+        Value: tcs-web-subnet
+
+  tcsPrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: tcsVpc
+      CidrBlock: 192.168.16.0/20
+      AvailabilityZone: "ap-south-1b"
+      MapPublicIpOnLaunch: 'false'
+      Tags:
+      - Key: Name
+        Value: tcs-database-subnet
+
+  tcsInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key: Name
+        Value: tcs-internet-gateway
+
+  tcsNATGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+       AllocationId: !GetAtt tcsNATGatewayEIP.AllocationId
+       SubnetId: !Ref tcsPublicSubnet
+       Tags:
+       - Key: Name
+         Value: production
+  tcsNATGatewayEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+       Domain: vpc
+  tcsRouteNATGateway:
+    Type: AWS::EC2::Route
+    Properties:
+       RouteTableId: !Ref tcsPrivateRouteTable
+       DestinationCidrBlock: '0.0.0.0/0'
+       NatGatewayId: !Ref tcsNATGateway
+
+
+  tcsAttachInternetGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId:
+        Ref: tcsVpc
+      InternetGatewayId:
+        Ref: tcsInternetGateway
+
+  tcsPublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:  
+        Ref: tcsVpc
+      Tags:
+      - Key: Name
+        Value: tcs-pub-rt        
+
+  tcsPrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:  
+        Ref: tcsVpc
+      Tags:
+      - Key: Name
+        Value: tcs-pvt-rt 
+
+  tcsInternetRoute:
+    Type: AWS::EC2::Route
+    DependsOn: tcsAttachInternetGateway
+    Properties:
+       RouteTableId:
+         Ref: tcsPublicRouteTable
+       DestinationCidrBlock: 0.0.0.0/0
+       GatewayId:
+         Ref: tcsInternetGateway   
+
+  tcsPublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        Ref: tcsPublicSubnet
+      RouteTableId:
+        Ref: tcsPublicRouteTable
+
+  tcsPrivateSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        Ref: tcsPrivateSubnet
+      RouteTableId:
+        Ref: tcsPrivateRouteTable
+
+  tcsPublicNetworkAcl:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+        VpcId:
+          Ref: tcsVpc
+        Tags:
+        - Key: Name
+          Value: tcs-web-nacl
+
+  tcsPrivateNetworkAcl:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+        VpcId:
+          Ref: tcsVpc
+        Tags:
+        - Key: Name
+          Value: tcs-database-nacl
+
+  tcsPublicNACLInboundRule:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+       NetworkAclId:
+         Ref: tcsPublicNetworkAcl
+       RuleNumber: 100
+       Protocol: 6 # Only TCP 
+       PortRange:
+         From: 0
+         To: 65535
+       RuleAction: allow
+       CidrBlock: 0.0.0.0/0
+
+  tcsPublicNACLOutboundRule:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+       NetworkAclId:
+         Ref: tcsPublicNetworkAcl
+       RuleNumber: 100
+       Protocol: -1 # Ignores and allows all ports
+       Egress: true
+       RuleAction: allow
+       CidrBlock: 0.0.0.0/0
+
+  tcsPrivateNACLInboundRule:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+       NetworkAclId:
+         Ref: tcsPrivateNetworkAcl
+       RuleNumber: 100
+       Protocol: 6 # Only TCP 
+       PortRange:
+         From: 0
+         To: 65535
+       RuleAction: allow
+       CidrBlock: 0.0.0.0/0
+
+  tcsPrivateNACLOutboundRule:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+       NetworkAclId:
+         Ref: tcsPrivateNetworkAcl
+       RuleNumber: 100
+       Protocol: -1 # Ignores and allows all ports
+       Egress: true
+       RuleAction: allow
+       CidrBlock: 0.0.0.0/0
+
+  tcsPublicSubnetNetworkAclAssociation:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      SubnetId:
+        Ref: tcsPublicSubnet
+      NetworkAclId:
+        Ref: tcsPublicNetworkAcl
+
+  tcsPrivateSubnetNetworkAclAssociation:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      SubnetId:
+        Ref: tcsPrivateSubnet
+      NetworkAclId:
+        Ref: tcsPrivateNetworkAcl
+
+  tcsPublicSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow ssh http to client host
+      VpcId: !Ref tcsVpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0  
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+
+  tcsPrivateSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow ssh  to client host
+      VpcId: !Ref tcsVpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 192.168.0.0/16
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+
