@@ -1,0 +1,203 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: ibm vpc infrastructure
+Resources:
+  ibmVPC: 
+    Type: AWS::EC2::VPC
+    Properties: 
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+      Tags:
+       - Key: Name
+         Value: ibm-vpc
+
+  ibmwebSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref ibmVPC
+      CidrBlock: 10.0.0.0/20
+      AvailabilityZone: "eu-west-2a"
+      MapPublicIpOnLaunch: 'true'
+      Tags:
+      - Key: Name
+        Value: ibm-web-subnet
+
+  ibmdbSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref ibmVPC
+      CidrBlock: 10.0.16.0/20
+      AvailabilityZone: "eu-west-2a"
+      MapPublicIpOnLaunch: 'false'
+      Tags:
+      - Key: Name
+        Value: ibm-database-subnet
+
+  ibmInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key: Name
+        Value: ibm-igw
+
+  ibmNATGateway:
+   Type: AWS::EC2::NatGateway
+   Properties:
+      AllocationId: !GetAtt ibmNATGatewayEIP.AllocationId
+      SubnetId: !Ref ibmwebSubnet
+      Tags:
+      - Key: stack
+        Value: production
+  
+  ibmNATGatewayEIP:
+   Type: AWS::EC2::EIP
+   Properties:
+      Domain: vpc
+
+  ibmRouteNATGateway:
+   Type: AWS::EC2::Route
+   Properties:
+      RouteTableId: !Ref ibmdbRouteTable
+      DestinationCidrBlock: '0.0.0.0/0'
+      NatGatewayId: !Ref ibmNATGateway        
+
+  ibmigwattached:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId:
+        Ref: ibmVPC
+      InternetGatewayId:
+        Ref: ibmInternetGateway
+
+  ibmwebRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:  
+        Ref: ibmVPC
+      Tags:
+      - Key: Name
+        Value: ibm-web-rt
+      
+  ibmdbRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:  
+        Ref: ibmVPC
+      Tags:
+      - Key: Name
+        Value: ibm-database-rt
+
+  ibmigwRoute:
+    Type: AWS::EC2::Route
+    DependsOn: ibmigwattached
+    Properties:
+       RouteTableId:
+         Ref: ibmwebRouteTable
+       DestinationCidrBlock: 0.0.0.0/0
+       GatewayId:
+         Ref: ibmInternetGateway
+
+  ibmwebSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        Ref: ibmwebSubnet
+      RouteTableId:
+        Ref: ibmwebRouteTable
+
+  ibmdbSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        Ref: ibmdbSubnet
+      RouteTableId:
+        Ref: ibmdbRouteTable
+
+  ibmwebNetworkAcl:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+       VpcId:
+         Ref: ibmVPC
+       Tags:
+       - Key: Name
+         Value: ibm-web-nacl
+
+  ibmdbNetworkAcl:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+       VpcId:
+         Ref: ibmVPC
+       Tags:
+       - Key: Name
+         Value: ibm-database-nacl
+
+  ibmwebSubnetNetworkAclAssociation:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      SubnetId:
+        Ref: ibmwebSubnet
+      NetworkAclId:
+        Ref: ibmwebNetworkAcl
+
+  ibmdbSubnetNetworkAclAssociation:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      SubnetId:
+        Ref: ibmdbSubnet
+      NetworkAclId:
+        Ref: ibmdbNetworkAcl
+
+  ibmwebnaclinbound:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+       NetworkAclId:
+         Ref: ibmwebNetworkAcl
+       RuleNumber: 100
+       Protocol: 6
+       RuleAction: allow
+       CidrBlock: 0.0.0.0/0
+       PortRange:
+         From: 0
+         To: 65535
+
+  ibmdbnacloutbound:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+       NetworkAclId:
+         Ref: ibmdbNetworkAcl
+       RuleNumber: 100
+       Protocol: 6
+       RuleAction: allow
+       CidrBlock: 0.0.0.0/0
+       Egress: true
+       PortRange:
+         From: 0
+         To: 65535
+
+  ibmwebnacloutbound:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+       NetworkAclId:
+         Ref: ibmwebNetworkAcl
+       RuleNumber: 100
+       Protocol: 6
+       RuleAction: allow
+       CidrBlock: 0.0.0.0/0
+       Egress: true
+       PortRange:
+         From: 0
+         To: 65535
+
+  ibmdbnaclinbound:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+       NetworkAclId:
+         Ref: ibmdbNetworkAcl
+       RuleNumber: 100
+       Protocol: 6
+       RuleAction: allow
+       CidrBlock: 0.0.0.0/0
+       PortRange:
+         From: 0
+         To: 65535
+
